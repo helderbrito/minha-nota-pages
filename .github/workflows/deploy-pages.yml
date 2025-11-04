@@ -1,0 +1,82 @@
+name: Deploy Privacy Policy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'politica-privacidade.html'
+      - '.github/workflows/deploy-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  pull-requests: read
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  check-permissions:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check if user is repository administrator
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const actor = context.actor;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            if (actor.toLowerCase() === owner.toLowerCase()) {
+              core.info(`✅ Usuário é o owner do repositório. Deploy autorizado.`);
+              return;
+            }
+            
+            try {
+              const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: owner,
+                repo: repo,
+                username: actor
+              });
+              
+              const allowedPermissions = ['admin', 'maintain'];
+              const userPermission = permission.permission;
+              
+              if (!allowedPermissions.includes(userPermission)) {
+                core.setFailed(`❌ Acesso negado! Apenas administradores do repositório podem fazer deploy. Você tem permissão: ${userPermission}. Permissões permitidas: ${allowedPermissions.join(', ')}`);
+              } else {
+                core.info(`✅ Permissão verificada: ${userPermission}. Deploy autorizado.`);
+              }
+            } catch (error) {
+              core.setFailed(`❌ Erro ao verificar permissões. Acesso negado por segurança. Erro: ${error.message}`);
+            }
+
+  deploy:
+    needs: check-permissions
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4.2.2
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5.0.0
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3.0.1
+        with:
+          path: '.'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4.0.5
+
